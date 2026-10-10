@@ -11,7 +11,7 @@ output:
 knitr::opts_chunk$set( echo = T, message=F, warning=F )
 ```
 
-```{r libraries}
+```{r libraries, include = FALSE}
 library(dplyr)
 library(gender)
 library(knitr)
