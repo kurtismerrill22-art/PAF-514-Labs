@@ -1,0 +1,300 @@
+---
+title: "Code-Through - Batch Reporting"
+author: "Kurtis Merrill"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_float: true
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set( echo = T, message=F, warning=F )
+```
+
+```{r libraries}
+library(dplyr)
+library(gender)
+library(knitr)
+
+source("utils.R")
+```
+
+
+# Introduction
+
+Have you ever needed to create the same report repeatedly using different data? Instead of writing five separate reports, we can create one report template and use a batch script to generate reports automatically.
+
+This tutorial will demonstrate how to use:
+
+- R Markdown templates
+- custom functions
+- parameters
+- batch processing
+
+The data used in this demo is from ASU Employee Salary data from 2012 to 2025. We'll be using it to compare academic positions of male and female employees. Once the template is set up for creating one report for one year, we can use the template to quickly produce any of the years we'd like.
+
+# Project Workflow
+
+The project consists of three files:
+
+```text
+batch.R
+    |
+    +---- salary-report.rmd
+                |
+                +---- utils.R
+```
+
+The workflow is:
+
+1. `batch.R` selects a data source.
+2. `salary-report.rmd` loads and analyzes the data.
+3. `utils.R` provides reusable helper functions.
+4. An HTML report is generated automatically.
+
+# Step 1: Create Helper Functions
+
+Helper functions are stored in a file named `utils.R`. Functions help avoid repeating the same code in the template.
+
+For example, this function extracts first names from employee records:
+
+```{r}
+get_first_name("Doe, Jane")
+```
+
+Output:
+
+```r
+[1] "Jane"
+```
+
+# Step 2: Load Functions
+
+Functions can be loaded into a project using:
+
+```{r}
+source("utils.R")
+```
+
+This makes all the helper functions available within the report.
+
+# Step 3: Load Data
+
+Load your dataset. This example uses a link from a Google Sheets tab for 2020 salaries:
+
+```{r}
+URL <- "https://docs.google.com/spreadsheets/d/1RoiO9bfpbXowprWdZrgtYXG9_WuK3NFemwlvDGdym7E/export?gid=1335284952&format=csv"
+
+d <- read.csv(URL)
+
+head(d)
+```
+
+# Step 4: Clean and Prepare Data
+
+Extract first names:
+
+```{r}
+d$first.name <- get_first_name(d$Full.Name)
+
+head(
+  d[, c("Full.Name", "first.name")]
+)
+```
+
+Add gender classifications:
+
+```{r}
+d <- add_gender(d)
+
+table(d$gender)
+```
+
+Standardize job titles:
+
+```{r}
+d <- add_titles(d)
+
+table(d$title)
+```
+
+Convert salary values to numeric full-time equivalent salaries:
+
+```{r}
+d <- fix_salary(d)
+
+summary(d$salary)
+```
+
+Demonstrate the salary formatting function:
+
+```{r}
+dollarize(123456)
+```
+
+# Step 5: Create Analysis Sample
+
+Select only academic faculty positions used in the report.
+
+```{r}
+d <- d %>%
+  filter(title != "" & !is.na(title)) %>%
+  filter(Department.Description %in% academic.units)
+
+dim(d)
+```
+
+# Step 6: Select One Department
+
+For demonstration purposes, we will focus on the Psychology department.
+
+```{r}
+d2 <- d %>%
+  filter(Department.Description == "Psychology")
+
+dim(d2)
+```
+
+# Step 7: Create Salary Summary Table
+
+Summarize salaries by academic rank and gender.
+
+```{r}
+t.salary <-
+  d2 %>%
+  group_by(title, gender) %>%
+  summarize(
+    q25 = quantile(salary, 0.25),
+    q50 = quantile(salary, 0.50),
+    q75 = quantile(salary, 0.75),
+    n = n()
+  ) %>%
+  ungroup() %>%
+  mutate(p = round(n / sum(n), 2))
+
+t.salary
+```
+
+The summary includes:
+
+- 25th percentile salary
+- Median salary
+- 75th percentile salary
+- Number of faculty members
+- Proportion of faculty by rank
+
+# Step 8: Visualize Results
+
+Create a graph comparing salaries by rank and gender.
+
+```{r, fig.height=7, fig.width=10}
+build_graph(
+  t.salary,
+  unit = "Psychology"
+)
+```
+
+# Step 9: Format and Display Salary Table
+
+Convert salary values to readable currency format.
+
+```{r}
+t.salary$q25 <- dollarize(t.salary$q25)
+t.salary$q50 <- dollarize(t.salary$q50)
+t.salary$q75 <- dollarize(t.salary$q75)
+
+knitr::kable(t.salary)
+```
+
+# Step 10: Display Top Five Salaries
+
+Identify the five highest-paid employees in the department.
+
+```{r}
+t.top5 <-
+  d2 %>%
+  arrange(desc(salary)) %>%
+  select(
+    Full.Name,
+    Job.Description,
+    salary
+  ) %>%
+  head(5)
+
+t.top5$salary <- dollarize(t.top5$salary)
+
+knitr::kable(t.top5)
+```
+
+# Step 11: Create a Generic Report Template
+
+Instead of creating separate reports manually, we can create a single reusable report template. The parameter is supplied by batch.R at the render stage, allowing the same report template to work with multiple years of data.
+
+The template accepts an external parameter:
+
+```yaml
+params:
+  url:
+    value: x
+```
+
+The parameter is used to load data:
+
+```r
+URL <- params$url
+d <- read.csv(URL)
+```
+
+This allows the same report to work with different datasets.
+
+# Step 12: Batch Processing
+
+The `rmarkdown::render()` function can generate reports automatically.
+
+Example:
+
+```r
+url.2020 <- "data_url"
+
+rmarkdown::render(
+  input = "salary-report.rmd",
+  output_file = "ASU-2020-Salary-Report.HTML",
+  params = list(url = url.2020)
+)
+```
+
+# Step 13: Generate Multiple Reports
+
+The completed batch script generated:
+
+```text
+ASU-2016-Salary-Report.HTML
+ASU-2017-Salary-Report.HTML
+ASU-2018-Salary-Report.HTML
+ASU-2019-Salary-Report.HTML
+ASU-2020-Salary-Report.HTML
+```
+
+Each report uses:
+
+- the same template
+- the same helper functions
+- a different yearly dataset
+
+# Conclusion:
+
+Benefits of batch reporting include:
+
+- Reduced duplicated code
+- Easier maintenance
+- Consistent report formatting
+- Automated report generation
+- Fewer opportunities for human error
+
+A change made once to the report template automatically applies to all future reports. By combining custom functions, R Markdown documents, and `rmarkdown::render()`, one report template can generate many reports with different datasets.
+
+This strategy is useful for:
+
+- annual or monthly reports
+- scheduled compliance reporting
+- recurring data analysis projects
